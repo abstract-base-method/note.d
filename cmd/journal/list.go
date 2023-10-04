@@ -3,20 +3,11 @@ package journal
 import (
 	"github.com/charmbracelet/bubbles/list"
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
 	"github.com/spf13/cobra"
 	"go.uber.org/zap"
+	config "noted/config"
 	"noted/journal"
 	"noted/logging"
-)
-
-var (
-	titleStyle        = lipgloss.NewStyle().MarginLeft(2)
-	itemStyle         = lipgloss.NewStyle().PaddingLeft(4)
-	selectedItemStyle = lipgloss.NewStyle().PaddingLeft(2).Foreground(lipgloss.Color("170"))
-	paginationStyle   = list.DefaultStyles().PaginationStyle.PaddingLeft(4)
-	helpStyle         = list.DefaultStyles().HelpStyle.PaddingLeft(4).PaddingBottom(1)
-	docStyle          = lipgloss.NewStyle().Margin(1, 2)
 )
 
 type entryList struct {
@@ -45,8 +36,8 @@ func newEntryList(entries []journal.Entry) entryList {
 	}
 
 	l := list.New(items, list.NewDefaultDelegate(), 0, 0)
-	l.Title = titleStyle.Render("Recent Journal Entries")
-	l.Styles.Title = titleStyle
+	l.Title = config.TitleStyle.Render("Recent Journal Entries")
+	l.Styles.Title = config.TitleStyle
 	//l.Styles.PaginationStyle = paginationStyle
 	//l.Styles.HelpStyle = helpStyle
 
@@ -56,13 +47,13 @@ func newEntryList(entries []journal.Entry) entryList {
 }
 
 func (e entryList) Init() tea.Cmd {
-	return nil
+	return tea.EnterAltScreen
 }
 
 func (e entryList) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
-		h, v := docStyle.GetFrameSize()
+		h, v := config.DocStyle.GetFrameSize()
 		e.list.SetSize(msg.Width-h, msg.Height-v)
 
 	case tea.KeyMsg:
@@ -82,5 +73,5 @@ func (e entryList) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (e entryList) View() string {
-	return docStyle.Render(e.list.View())
+	return config.DocStyle.Render(e.list.View())
 }

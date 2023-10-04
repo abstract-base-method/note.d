@@ -24,6 +24,7 @@ type newTaskModel struct {
 
 const (
 	taskInputId = iota
+	detailInputId
 	dueDateInputId
 )
 
@@ -54,7 +55,7 @@ var AddTaskCmd = &cobra.Command{
 
 func createNewTaskModel() newTaskModel {
 	model := newTaskModel{
-		inputs:     make([]textinput.Model, 2),
+		inputs:     make([]textinput.Model, 3),
 		focusIndex: 0,
 		cursorMode: cursor.CursorBlink,
 		err:        nil,
@@ -71,6 +72,10 @@ func createNewTaskModel() newTaskModel {
 			t.Focus()
 			t.PromptStyle = focusedStyle
 			t.TextStyle = focusedStyle
+		case detailInputId:
+			t.Placeholder = "description"
+			t.TextStyle = noStyle
+			t.PromptStyle = noStyle
 		case dueDateInputId:
 			t.Placeholder = "due date"
 			t.TextStyle = noStyle
@@ -110,7 +115,7 @@ func (n newTaskModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 			if command == "enter" && n.focusIndex == len(n.inputs) {
 				// todo: handle time
-				n.err = task.CreateTask(n.inputs[taskInputId].Value(), nil)
+				n.err = task.CreateTask(n.inputs[taskInputId].Value(), n.inputs[detailInputId].Value(), nil)
 				// todo: process form data
 				return n, tea.Quit
 			}
