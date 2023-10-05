@@ -3,6 +3,7 @@ package task
 import (
 	"errors"
 	"fmt"
+	"github.com/google/uuid"
 	"github.com/spf13/viper"
 	"go.uber.org/zap"
 	"gopkg.in/yaml.v3"
@@ -13,11 +14,21 @@ import (
 	"time"
 )
 
+type NotFoundError struct {
+	File string
+	Task string
+}
+
+func (n NotFoundError) Error() string {
+	return fmt.Sprintf("%s:%s", n.File, n.Task)
+}
+
 type EntryFile struct {
 	Entries []Entry
 }
 
 type Entry struct {
+	Id           string
 	CreatedAt    time.Time
 	DueAt        *time.Time `yaml:"due_at,omitempty"`
 	ScheduledFor *time.Time `yaml:"scheduled_for,omitempty"`
@@ -26,7 +37,21 @@ type Entry struct {
 	Status       Status
 }
 
+func (t Entry) ToTask(file string) Task {
+	return Task{
+		Id:           t.Id,
+		File:         file,
+		CreatedAt:    t.CreatedAt,
+		DueAt:        t.DueAt,
+		ScheduledFor: t.ScheduledFor,
+		Task:         t.Task,
+		Detail:       t.Detail,
+		Status:       t.Status,
+	}
+}
+
 type Task struct {
+	Id           string
 	File         string
 	CreatedAt    time.Time
 	DueAt        *time.Time
@@ -41,16 +66,20 @@ func (t Task) Title() string {
 }
 
 func (t Task) Description() string {
-	return t.Detail
+	return fmt.Sprintf("%s: %s", t.Status.AsString(), t.Detail)
 }
 
 func (t Task) FilterValue() string {
 	return fmt.Sprintf("%s %s %d", t.Task, t.Detail, t.Status)
 }
 
-func (t Entry) toTask(file string) Task {
-	return Task{
-		File:         file,
+func (t Task) Matches(entry Entry) bool {
+	return t.Id == entry.Id
+}
+
+func (t Task) ToEntry() Entry {
+	return Entry{
+		Id:           t.Id,
 		CreatedAt:    t.CreatedAt,
 		DueAt:        t.DueAt,
 		ScheduledFor: t.ScheduledFor,
@@ -65,17 +94,20 @@ type Status byte
 const (
 	ToDo = iota
 	Scheduled
+	InProgress
 	Paused
 	Cancelled
 	Done
 )
 
-func StatusAsString(status Status) string {
-	switch status {
+func (s Status) AsString() string {
+	switch s {
 	case ToDo:
 		return "TODO"
 	case Scheduled:
 		return "SCHEDULED"
+	case InProgress:
+		return "IN-PROGRESS"
 	case Paused:
 		return "PAUSE"
 	case Cancelled:
@@ -99,9 +131,12 @@ func CreateTask(task string, detail string, due *time.Time) error {
 
 	if _, err := os.Stat(taskPath); errors.Is(err, os.ErrNotExist) {
 		if err = os.MkdirAll(taskPath, 0755); err != nil {
-			logging.Logger.Error("failed to create journal path", zap.Error(err))
+			logging.Logger.Error("failed to create task path", zap.Error(err))
 			return err
 		}
+	}
+
+	if _, err := os.Stat(taskFilePath); errors.Is(err, os.ErrNotExist) {
 		taskFile, err = os.Create(taskFilePath)
 		taskEntries = EntryFile{
 			Entries: make([]Entry, 0),
@@ -127,6 +162,7 @@ func CreateTask(task string, detail string, due *time.Time) error {
 	defer taskFile.Close()
 
 	taskEntries.Entries = append(taskEntries.Entries, Entry{
+		Id:           uuid.NewString(),
 		CreatedAt:    createdTime,
 		DueAt:        due,
 		ScheduledFor: nil,
@@ -143,6 +179,54 @@ func CreateTask(task string, detail string, due *time.Time) error {
 	}
 
 	return err
+}
+
+func UpdateTask(task Task) error {
+	if data, err := os.ReadFile(task.File); err != nil {
+		logging.Logger.Error("task's file is not found", zap.String("file", task.File))
+		return NotFoundError{
+			File: task.File,
+			Task: task.Task,
+		}
+	} else {
+		var contents EntryFile
+
+		if err = yaml.Unmarshal(data, &contents); err != nil {
+			logging.Logger.Error("failed to parse task file", zap.String("file", task.File), zap.Error(err))
+			return err
+		}
+
+		found := false
+		for i, entry := range contents.Entries {
+			if task.Matches(entry) {
+				found = true
+				contents.Entries[i] = task.ToEntry()
+			}
+		}
+
+		if !found {
+			logging.Logger.Error("failed to locate task", zap.String("task", task.Task))
+			return NotFoundError{
+				File: task.File,
+				Task: task.Task,
+			}
+		}
+
+		output, err := yaml.Marshal(contents)
+		if err != nil {
+			logging.Logger.Error("failed to marshal tasks YAML", zap.Error(err), zap.String("file", task.File))
+			return err
+		}
+
+		taskFile, err := os.OpenFile(task.File, os.O_WRONLY, os.ModeAppend)
+		if err != nil {
+			logging.Logger.Error("failed to marshal tasks YAML", zap.Error(err), zap.String("file", task.File))
+			return err
+		}
+
+		_, err = taskFile.Write(output)
+		return err
+	}
 }
 
 func ListTasks(includeCompleted bool) []Task {
@@ -167,9 +251,9 @@ func ListTasks(includeCompleted bool) []Task {
 			} else {
 				for _, entry := range contents.Entries {
 					if entry.Status == Done && includeCompleted {
-						tasks = append(tasks, entry.toTask(path.Join(taskPath, file.Name())))
+						tasks = append(tasks, entry.ToTask(path.Join(taskPath, file.Name())))
 					} else {
-						tasks = append(tasks, entry.toTask(path.Join(taskPath, file.Name())))
+						tasks = append(tasks, entry.ToTask(path.Join(taskPath, file.Name())))
 					}
 				}
 			}
